@@ -117,14 +117,22 @@ export type PiniaPlugin = (
   context: PiniaPluginContext,
 ) => (Partial<PiniaCustomProperties> & PiniaCustomStateProperties) | void
 
+/** 深度可选(官方同款:让 $patch 等 API 接受任意深度的部分对象) */
+export type _DeepPartial<T> = { [K in keyof T]?: _DeepPartial<T[K]> }
+
 /** store 上 $ 前缀的操作 API(用户声明的键不会用到 $ 前缀) */
 export interface _StoreWithState<Id extends string, S extends StateTree, G, A> {
   $id: Id
   /** 读穿 pinia.state.value[id] 的响应式数据接口 */
   $state: S
-  $patch: (
-    partialStateOrMutator: ((state: S) => void) | Partial<S> & { [k: string]: any },
-  ) => void
+  // $patch 双重载(官方 4.1 同款):
+  // 1) 对象形式:_DeepPartial 深度可选(与官方一致,嵌套新键在类型层不允许 →
+  //    官方也如此,运行期可用 as any 桥接,见 docs/06 差异表);
+  // 2) 函数形式:类型守卫 —— 异步 mutator 会被推断成 never(拒绝异步 patch)
+  $patch: {
+    (partialState: _DeepPartial<UnwrapRef<S>>): void
+    <F extends (state: UnwrapRef<S>) => any>(stateMutator: ReturnType<F> extends Promise<any> ? never : F): void
+  }
   $reset: () => void
   $subscribe: (
     callback: SubscriptionCallback<S>,

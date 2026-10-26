@@ -3,10 +3,11 @@
  * 机制:同一批 store 定义分别交给官方与 mini,pinia 实例互相隔离
  * (各自 createPinia + 各自 setActivePinia),只比「可观察行为」。
  * 若有行为差异,一律以官方为准修复 mini —— 这是本测试文件存在的意义。
- * (M2 子集:创建/展开/缓存/重复 id/dispose 重建;操作 API 的对拍随 M3 补全)
+ * (M2 子集:创建/展开/缓存/重复 id/dispose 重建;
+ *  M3 补全:操作 API 对拍 —— 事件序列/时序/调用链/退订)
  */
 import { describe, it, expect } from 'vitest'
-import { computed, ref, reactive } from 'vue'
+import { computed, nextTick, ref, reactive } from 'vue'
 import {
   createPinia as officialCreatePinia,
   defineStore as officialDefineStore,
@@ -207,5 +208,198 @@ describe('parity —— 重复 id 与 dispose 重建', () => {
     expect(runs.m).toBe(1)
     officialDisposePinia(oPinia)
     disposePinia(mPinia)
+  })
+})
+
+describe('parity —— 操作 API(M3)', () => {
+  it('$patch 两形式:事件序列 [type, storeId, hasPayload] 与最终 state 一致', async () => {
+    const { o, m, dispose } = makePair('par3', optionStoreDef)
+    const oEvents: any[] = []
+    const mEvents: any[] = []
+    o.$subscribe((mut: any) => oEvents.push({ type: mut.type, storeId: mut.storeId, hasPayload: 'payload' in mut }))
+    m.$subscribe((mut: any) => mEvents.push({ type: mut.type, storeId: mut.storeId, hasPayload: 'payload' in mut }))
+
+    o.$patch({ count: 5, list: [3], nested: { b: 2 } })
+    m.$patch({ count: 5, list: [3], nested: { b: 2 } })
+    o.$patch((s: any) => {
+      s.count = 9
+      s.nested.a = 5
+    })
+    m.$patch((s: any) => {
+      s.count = 9
+      s.nested.a = 5
+    })
+    // patch 后等一轮微任务:两边都不应有 watcher 补发的 direct 事件
+    await nextTick()
+
+    expect(mEvents).toEqual(oEvents)
+    expect(mEvents.map((e) => e.type)).toEqual(['patch object', 'patch function'])
+    expect(JSON.parse(JSON.stringify(m.$state))).toEqual(JSON.parse(JSON.stringify(o.$state)))
+    dispose()
+  })
+
+  it('$reset:状态复原与事件序列一致(sync 订阅下为 direct + patch function)', () => {
+    const { o, m, dispose } = makePair('par4', optionStoreDef)
+    const oEvents: string[] = []
+    const mEvents: string[] = []
+    o.$subscribe((mut: any) => oEvents.push(mut.type), { flush: 'sync' })
+    m.$subscribe((mut: any) => mEvents.push(mut.type), { flush: 'sync' })
+    o.count = 7
+    m.count = 7
+    o.list.push(9)
+    m.list.push(9)
+    o.$reset()
+    m.$reset()
+    expect(mEvents).toEqual(oEvents)
+    expect(mEvents).toEqual(['direct', 'direct', 'patch function'])
+    expect(m.count).toBe(o.count)
+    expect(m.list).toEqual(o.list)
+    dispose()
+  })
+
+  it('订阅时序:默认 flush 异步触发、sync 立即触发,两边一致', async () => {
+    const { o, m, dispose } = makePair('par5', optionStoreDef)
+    const oPre: string[] = []
+    const mPre: string[] = []
+    const oSync: string[] = []
+    const mSync: string[] = []
+    o.$subscribe((mut: any) => oPre.push(mut.type))
+    m.$subscribe((mut: any) => mPre.push(mut.type))
+    o.$subscribe((mut: any) => oSync.push(mut.type), { flush: 'sync' })
+    m.$subscribe((mut: any) => mSync.push(mut.type), { flush: 'sync' })
+
+    o.count = 1
+    m.count = 1
+    // sync 已经触发;pre 还没
+    expect(oSync).toEqual(mSync)
+    expect(oSync).toEqual(['direct'])
+    expect(mPre).toEqual([])
+    expect(oPre).toEqual([])
+
+    await nextTick()
+    expect(oPre).toEqual(mPre)
+    expect(mPre).toEqual(['direct'])
+    dispose()
+  })
+
+  it('action 调用链:跨 store 调用 + 异步 after/onError 顺序一致', async () => {
+    const oPinia = officialCreatePinia()
+    const mPinia = createPinia()
+    officialSetActivePinia(oPinia)
+    const oLog: string[] = []
+    const oUseA = officialDefineStore('par6A', {
+      state: () => ({ n: 0 }),
+      actions: {
+        inc(this: any) {
+          this.n++
+          oLog.push('A.inc')
+        },
+        async slow(this: any) {
+          oLog.push('A.slow')
+          return this.$id
+        },
+        async bad(this: any) {
+          throw new Error('a-boom')
+        },
+      },
+    })
+    const oUseB = officialDefineStore('par6B', {
+      state: () => ({ m: 0 }),
+      actions: {
+        pull(this: any) {
+          oLog.push('B.pull')
+          oUseA().inc()
+          return this.$id
+        },
+      },
+    })
+    const oa = oUseA()
+    const ob = oUseB()
+    ob.$onAction((c: any) => {
+      c.after((r: any) => oLog.push('after:' + r))
+      c.onError(() => oLog.push('err'))
+    })
+    oa.$onAction((c: any) => {
+      c.after(() => oLog.push('A.after'))
+      c.onError(() => oLog.push('err')) // bad() 的 onError 挂在 A 上
+    })
+
+    setActivePinia(mPinia)
+    const mLog: string[] = []
+    const mUseA = defineStore('par6A', {
+      state: () => ({ n: 0 }),
+      actions: {
+        inc(this: any) {
+          this.n++
+          mLog.push('A.inc')
+        },
+        async slow(this: any) {
+          mLog.push('A.slow')
+          return this.$id
+        },
+        async bad(this: any) {
+          throw new Error('a-boom')
+        },
+      },
+    })
+    const mUseB = defineStore('par6B', {
+      state: () => ({ m: 0 }),
+      actions: {
+        pull(this: any) {
+          mLog.push('B.pull')
+          mUseA().inc()
+          return this.$id
+        },
+      },
+    })
+    const ma = mUseA()
+    const mb = mUseB()
+    mb.$onAction((c: any) => {
+      c.after((r: any) => mLog.push('after:' + r))
+      c.onError(() => mLog.push('err'))
+    })
+    ma.$onAction((c: any) => {
+      c.after(() => mLog.push('A.after'))
+      c.onError(() => mLog.push('err'))
+    })
+
+    // 同步链:跨 store 调用 + after 顺序
+    expect(mb.pull()).toBe(ob.pull())
+    expect(ma.n).toBe(oa.n)
+
+    // 异步链:after/onError 与原样 re-reject
+    await ma.slow()
+    await oa.slow()
+    expect(mLog).toEqual(oLog)
+    for (const action of [() => oa.bad(), () => ma.bad()]) {
+      await expect(action()).rejects.toThrow('a-boom')
+    }
+    expect(mLog).toEqual(oLog)
+    expect(oLog).toContain('err')
+    officialDisposePinia(oPinia)
+    disposePinia(mPinia)
+  })
+
+  it('退订:退订后变更无事件,退订幂等(两边一致)', async () => {
+    const { o, m, dispose } = makePair('par7', optionStoreDef)
+    const oLog: string[] = []
+    const mLog: string[] = []
+    const oUn = o.$subscribe(() => oLog.push('e'))
+    const mUn = m.$subscribe(() => mLog.push('e'))
+    oUn()
+    mUn()
+    o.count = 1
+    m.count = 1
+    await nextTick()
+    expect(mLog).toEqual(oLog)
+    expect(mLog).toEqual([])
+    // 幂等:重复退订不恢复
+    oUn()
+    mUn()
+    o.$patch({ count: 2 })
+    m.$patch({ count: 2 })
+    expect(mLog).toEqual(oLog)
+    expect(mLog).toEqual([])
+    dispose()
   })
 })
