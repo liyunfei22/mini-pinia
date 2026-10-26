@@ -421,7 +421,7 @@ function createSetupStore(
           !(value as any)?.__v_skip
         ) {
           console.warn(
-            `[🍍]: Property "${key}" of store "${$id}" is not reactive (not a ref, reactive object, or shallowRef), so it will not be picked up by storeToRefs().`,
+            `[🍍]: Property "${key}" of store "${$id}" is not reactive (not a ref, reactive object, or shallowRef), so storeToRefs() ignores it.`,
           )
         }
       }

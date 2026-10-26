@@ -1,16 +1,18 @@
 /**
- * demo 入口(M1 占位版 —— M5 里程碑替换为完整教学 demo)
- * 说明:让 npm run dev 从 M1 起即可启动。
+ * demo 入口(M5 完整版):组装应用并挂载
+ * 顺序:createApp → pinia.use(loggerPlugin)(install 前调用 → 进待装队列,
+ * 由 createPinia 的 install 统一转入 _p)→ app.use(pinia) → mount #app。
  */
-import { createApp, h } from 'vue'
+import { createApp } from 'vue'
+import { createPinia } from '@mini/index'
+import { App } from './app'
+import { loggerPlugin } from './plugin'
 
-createApp({
-  render: () =>
-    h(
-      'div',
-      {
-        style: 'padding: 24px; font-family: monospace; font-size: 13px;',
-      },
-      'mini-pinia demo(M1 占位页 —— 完整 demo 随 M5 里程碑落地)',
-    ),
-}).mount('#app')
+const app = createApp(App)
+const pinia = createPinia()
+
+// 注册 logger 插件:每个 store 创建时注入 $createdAt / $pluginId 并打日志
+pinia.use(loggerPlugin)
+
+app.use(pinia)
+app.mount('#app')
