@@ -13,12 +13,14 @@ import {
   defineStore as officialDefineStore,
   disposePinia as officialDisposePinia,
   setActivePinia as officialSetActivePinia,
+  storeToRefs as officialStoreToRefs,
 } from 'pinia'
 import {
   createPinia,
   defineStore,
   disposePinia,
   setActivePinia,
+  storeToRefs,
 } from '../src/index'
 
 /** 共享的 options 语法 store 定义(纯数据,不依赖任何库) */
@@ -400,6 +402,27 @@ describe('parity —— 操作 API(M3)', () => {
     m.$patch({ count: 2 })
     expect(mLog).toEqual(oLog)
     expect(mLog).toEqual([])
+    dispose()
+  })
+})
+
+describe('parity —— storeToRefs(M4)', () => {
+  it('对拍 8:storeToRefs 分类、取值与反向写入一致(setup 语法)', () => {
+    const { o, m, dispose } = makePair('par8', setupStoreDef, true)
+    const oRefs: any = officialStoreToRefs(o) // 官方返回类型太复杂,桥接 any
+    const mRefs: any = storeToRefs(m)
+    // 分类一致:count/list/nested(double 是 computed)/double;不含 inc
+    expect(Object.keys(mRefs).sort()).toEqual(Object.keys(oRefs).sort())
+    expect('inc' in mRefs).toBe(false)
+    // store → refs 正向同步
+    o.count = 3
+    m.count = 3
+    expect(mRefs.count.value).toBe(oRefs.count.value)
+    expect(mRefs.double.value).toBe(oRefs.double.value)
+    // refs → store 反向写入(toRef 写穿)
+    mRefs.count.value = 9
+    oRefs.count.value = 9
+    expect(m.count).toBe(o.count)
     dispose()
   })
 })
