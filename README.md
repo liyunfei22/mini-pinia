@@ -31,7 +31,7 @@ npm run build      # 库产物 dist/(tsc)+ demo 产物 dist-demo/(vite)
 ## 里程碑
 
 - [x] M1 脚手架(配置 + 官方行为探测基线)
-- [ ] M2 createPinia + defineStore 核心(两种语法)
+- [x] M2 createPinia + defineStore 核心(两种语法归一 + 按需展开 + 插件执行)
 - [ ] M3 操作 API($patch/$reset/$subscribe/$onAction/$dispose)
 - [ ] M4 storeToRefs + mapXxx + 插件系统
 - [ ] M5 examples + docs + 发布

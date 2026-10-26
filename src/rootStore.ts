@@ -8,10 +8,10 @@
  *    注入链拿不到才兜底回模块级 activePinia —— 这一行就是 SSR 安全的全部秘密。
  */
 import { hasInjectionContext, inject } from 'vue'
-import type { Pinia } from './types'
+import type { Pinia, StoreGeneric } from './types'
 
-/** 模块级单例:当前激活的 pinia(不存在时 undefined) */
-let activePinia: Pinia | undefined
+/** 模块级单例:当前激活的 pinia(不存在时 undefined);store.ts 内部直接读写 */
+export let activePinia: Pinia | undefined
 
 /**
  * 设置/清除当前激活的 pinia。SSR 与内部调用 action/getter 前使用
@@ -45,7 +45,7 @@ export function getActivePinia(): Pinia | undefined {
  * 获取某 pinia 上已创建的全部 store(每次返回新数组,迭代期间增/删 store 安全)。
  * 官方 4.x 新增 API,建议用它而不是直接读 pinia._s。
  */
-export function getStores(pinia: Pinia): ReturnType<Pinia['_s']['get']>[] {
+export function getStores(pinia: Pinia): StoreGeneric[] {
   return Array.from(pinia._s.values())
 }
 

@@ -156,7 +156,8 @@ export type Store<
 > = _StoreWithState<Id, S, G, A> &
   UnwrapRef<S> &
   _StoreWithGetters<G> &
-  A &
+  // actions 默认是 _ActionsTree 时用空交叉:避免把「任意键都是函数」塞进 store 类型(官方同款)
+  (_ActionsTree extends A ? {} : A) &
   PiniaCustomProperties &
   PiniaCustomStateProperties
 
@@ -204,20 +205,37 @@ export interface DefineSetupStoreOptions<Id extends string> {
   id?: Id
 }
 
-/** 从 setup store 返回值里提取 state 类型:ref 解包,其余原样 */
-export type _ExtractStateFromSetupStore<SS> = {
-  [K in keyof SS]: SS[K] extends Ref<infer T> ? T : SS[K]
+/**
+ * setup 语法 defineStore 的 setup 收到的辅助对象(官方 4.x 新增):
+ * 在 setup 内部提前手动包装 action,让 $onAction 也能感知「在 store 内部声明的函数」。
+ */
+export interface SetupStoreHelpers {
+  action: <Fn extends _Method>(fn: Fn, name?: string) => Fn
 }
 
-/** 提取 getter:computed 解包(骨架版,不追踪 nested/readonly 细节) */
-export type _ExtractGettersFromSetupStore<SS> = {
-  [K in keyof SS as SS[K] extends ComputedRef<any> ? K : never]: SS[K] extends ComputedRef<infer R> ? R : never
-}
+/** 可调用方法(actions 判定用,与官方 _Method 一致) */
+export type _Method = (...args: any[]) => any
 
-/** 提取 action:纯函数 */
-export type _ExtractActionsFromSetupStore<SS> = {
-  [K in keyof SS as SS[K] extends (...args: any[]) => any ? K : never]: SS[K]
+/** 从 setup store 返回值里提取类型:官方同款「Keys + Pick」骨架版
+ * state = 既非方法也非 computed 的键;getters = computed;actions = 方法 */
+export type _ExtractStateFromSetupStore_Keys<SS> = keyof {
+  [K in keyof SS as SS[K] extends _Method | ComputedRef ? never : K]: any
 }
+export type _ExtractActionsFromSetupStore_Keys<SS> = keyof {
+  [K in keyof SS as SS[K] extends _Method ? K : never]: any
+}
+export type _ExtractGettersFromSetupStore_Keys<SS> = keyof {
+  [K in keyof SS as SS[K] extends ComputedRef ? K : never]: any
+}
+export type _ExtractStateFromSetupStore<SS> = SS extends undefined | void
+  ? {}
+  : Pick<SS, _ExtractStateFromSetupStore_Keys<SS>>
+export type _ExtractActionsFromSetupStore<SS> = SS extends undefined | void
+  ? {}
+  : Pick<SS, _ExtractActionsFromSetupStore_Keys<SS>>
+export type _ExtractGettersFromSetupStore<SS> = SS extends undefined | void
+  ? {}
+  : Pick<SS, _ExtractGettersFromSetupStore_Keys<SS>>
 
 /** defineStore 的返回值:可调用函数(useStore)+ store 形状 + $id */
 export type StoreDefinition<
@@ -230,14 +248,11 @@ export type StoreDefinition<
   $id: Id
 }
 
-/** setup 语法 defineStore 的返回值(& StateTree 使默认 S 满足 Store 的类型约束) */
+/** setup 语法 defineStore 的返回值(官方 4.x 的 S/G/A 三默认参数,mini 保留) */
 export type SetupStoreDefinition<
   Id extends string = string,
   SS = any,
   S extends StateTree = _ExtractStateFromSetupStore<SS> & StateTree,
-> = StoreDefinition<
-  Id,
-  S,
-  _ExtractGettersFromSetupStore<SS>,
-  _ExtractActionsFromSetupStore<SS>
->
+  G = _ExtractGettersFromSetupStore<SS>,
+  A = _ExtractActionsFromSetupStore<SS>,
+> = StoreDefinition<Id, S, G, A>
