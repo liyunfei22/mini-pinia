@@ -14,6 +14,28 @@ import type { StateTree } from './types'
 /** 空函数($subscribe 重复注册时返回、addSubscription 的默认 onCleanup) */
 export const noop = () => {}
 
+/**
+ * mini 的告警输出:与官方 4.1 的 nostics createConsoleReporter 输出格式逐一对应
+ * (真实输出已在 scripts/probes.mjs 场景实测):
+ *   [PINIA_R100x] <why>
+ *   ├▶ fix: <fix>
+ *   ╰▶ see: <docs url>
+ * why/fix/see 三行文案与官方 diagnostics(官方 dist 12-62)逐字一致;官方把
+ * 告警定义成诊断对象 + 报告器,mini 简化为一个函数直接 console[method]。
+ */
+export function reportDiagnostic(
+  code: string,
+  why: string,
+  fix?: string,
+  see?: string,
+  method: 'warn' | 'error' = 'warn',
+): void {
+  let message = `[${code}] ${why}`
+  if (fix) message += `\n├▶ fix: ${fix}`
+  if (see) message += `\n╰▶ see: ${see}`
+  console[method](message)
+}
+
 /** 纯对象判定(与官方逐行一致):存在、Object 标签、且没有 toJSON 方法 */
 export function isPlainObject(o: any): o is Record<string, any> {
   return (

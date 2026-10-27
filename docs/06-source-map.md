@@ -11,7 +11,7 @@
 | src/index.ts | index.ts | 仅第 1535 行导出清单 | 与官方 index.ts 对齐的公共出口,无运行期逻辑 |
 | src/createPinia.ts | createPinia.ts | 833-881 | install/use/队列/disposePinia;官方另在 install 时自动注册 devtools(849 register、864 use(devtoolsPlugin))——mini 无 |
 | src/store.ts | store.ts | 969-1382 | 全项目最核心:defineStore(1345)/createOptionsStore(1020)/createSetupStore(1045)/$ 方法/插件执行(1320-1337) |
-| src/rootStore.ts | rootStore.ts | 63-106 | activePinia(68)/setActivePinia(75)/getActivePinia(79-93)/getStores(91)/piniaSymbol(105) |
+| src/rootStore.ts | rootStore.ts | 63-106 | activePinia(68)/setActivePinia(75)/getActivePinia(79-83)/getStores(91)/piniaSymbol(105) |
 | src/types.ts | types.ts | 107-137 | 运行期仅 isPlainObject(108);类型体操在 dist/pinia.d.ts(Store 318、PiniaCustom* 350-354) |
 | src/subscriptions.ts | subscriptions.ts | 953-968 | Set 容器 + onScopeDispose,官方 4.1 与 mini 逐行同构 |
 | src/storeToRefs.ts | storeToRefs.ts | 1510-1534 | 分类提取;官方 1519 入口 |
@@ -30,12 +30,12 @@
 ## 6.2 简化点诚实清单(每条:官方位置 + mini 取舍)
 
 1. **devtools 全套**:官方 138-832 + install 自动注册(849/864)。mini 一行 devtools 代码都没有——它「零运行时正确性影响」(行为对拍不覆盖),且本身只是插件 API 的用户(见 docs/05 5.4),砍掉最能说明「devtools 不是 Pinia 本体」。
-2. **HMR**:官方分布四处:hmr.ts 882-952(`acceptHMRUpdate` 925-951)、store.ts 内 `_hmrPayload`(1168)/`_hotUpdate`(1250-1303)/`_hotUpdating`(1055)、useStore 的 hot 分支(1368-1373,热更新时重建 store 再 `hot._hotUpdate(newStore)`,配合 `useStore._pinia` 1359)、createOptionsStore 的 hot 分支(hot=true 时跳过初始 state() 执行,1024-1044)。mini 无任何 hot 参数——纯开发期便利,与运行时行为正交,实现成本却接近整个 store.ts 的 1/5。
+2. **HMR**:官方分布四处:hmr.ts 882-952(`acceptHMRUpdate` 925-951)、store.ts 内 `_hmrPayload`(1168)/`_hotUpdate`(1250-1303)/`_hotUpdating`(1055)、useStore 的 hot 分支(1362-1368,热更新时重建 store 再 `hot._hotUpdate(newStore)`,配合 `useStore._pinia` 1359)、createOptionsStore 的 hot 分支(hot=true 时跳过初始 state() 执行,1025-1028)。mini 无任何 hot 参数——纯开发期便利,与运行时行为正交,实现成本却接近整个 store.ts 的 1/5。
 3. **SSR 深支持**:官方 `skipHydrateSymbol`(996)/`skipHydrate`(1004)/`shouldHydrate`(1013),setup 语法 state 入仓前的 shouldHydrate 守卫在 1209;`options.hydrate` 插桩在 1339(SSR 序列化不够用的逃生舱,如服务端/客户端值不同的 customRef);getActivePinia 的 `!IS_CLIENT` 诊断(80-82,R1004)。mini 只做到「初始化不重复执行 state() + 注入链优先」两层,skipHydrate 整条设施未实现(R1004 用同文案 console.error 仿真,rootStore.ts:33-39)。
-4. **nostics/diagnostics 告警设施**:官方 12-62 用 nostics 的 `defineDiagnostics` + `createConsoleReporter`,每条带 why/fix/docs URL(R1006 直接指向官方插件文档锚点)。mini 一律 `console.warn` 输出 why 句子(「[🍍]: …」前缀原样保留,R1002/R1003/R1006/R1007/R1008 与官方逐字一致);fix 提示与 docs 链接一律省略——告警文本 vs 告警基建的取舍。
-5. **prod/dev 分支与 __VUE_PROD_DEVTOOLS__ tree-shaking**:官方几乎每处守卫都是双条件 `NODE_ENV !== 'production' || (typeof __VUE_PROD_DEVTOOLS__ !== 'undefined' && …)`(如 R1006 告警 1330-1336、_customProperties 记录 1327-1329),并在 dev 下把 _p/_hmrPayload/_getters/_customProperties defineProperty 成非枚举(1305-1326),避免污染遍历与 devtools。mini 一律 dev 行为(告警永远跑),`_customProperties` 直接留在骨架里(枚举键,store.ts:350)。取舍声明:可读性优先,tree-shaking 不是学习目标。
+4. **nostics/diagnostics 告警设施**:官方 12-62 用 nostics 的 `defineDiagnostics` + `createConsoleReporter`,输出格式实测为 `[PINIA_R100x] <why>` + `├▶ fix: <fix>` + `╰▶ see: <docs url>` 三段式。mini 用 `reportDiagnostic`(src/utils.ts)输出**同格式、三行文案逐字一致**(R1002/R1003/R1004/R1006/R1007/R1008;R1004 为 error 级别)。差异只在「基建」:官方是诊断对象 + 报告器,mini 是一个直接 console 的函数——告警输出 vs 告警对象化,取舍见 6.4。
+5. **prod/dev 分支与 __VUE_PROD_DEVTOOLS__ tree-shaking**:官方几乎每处守卫都是双条件 `NODE_ENV !== 'production' || (typeof __VUE_PROD_DEVTOOLS__ !== 'undefined' && …)`(如 R1006 告警 1329-1335、_customProperties 记录 1328),并在 dev 下把 _p/_hmrPayload/_getters/_customProperties defineProperty 成非枚举(1305-1320),避免污染遍历与 devtools。mini 一律 dev 行为(告警永远跑),非枚举重定义与官方一致(store.ts 末段 IS_CLIENT 守卫下对 _p/_getters/_customProperties 处理;官方另有 _hmrPayload,mini 无此键)。取舍声明:可读性优先,tree-shaking 不是学习目标。
 6. **TS 完整泛型体操**:`_ExtractStateFromSetupStore` 全家(Keys/Pick 版)mini 与官方实现一致(types.ts:227-247);但官方 Store 还有 `_StoreObject`、`_UnwrapAll`、`UnwrapRef` 深度交叉、`_StoreWithState` 的完整 $ 方法类型、`StoreDefinition` 双形态完整重载、`SetupStoreDefinition` 的 S/G/A 默认推演等(d.ts 318 是四段交叉),mini 只保留骨架(Store = _StoreWithState & UnwrapRef<S> & _StoreWithGetters<G> & actions交叉 & PiniaCustomProperties,types.ts:159-170)——够 `examples/` 与对拍测试编译,不够生产库。
-7. **mapStores + setMapStoreSuffix**:官方 1392/1417,后缀(默认 `$store`)防 mapStores 展开的 id 与组件计算属性撞名。mini mapHelpers.ts 未实现这两枚,README 功能表第 6 行已标 ⛔。
+7. **mapStores + setMapStoreSuffix**:官方 1392/1417,后缀(默认 `Store`)防 mapStores 展开的 id 与组件计算属性撞名。mini mapHelpers.ts 未实现这两枚,README 功能表第 6 行已标 ⛔。
 8. **acceptHMRUpdate**:官方 925-951,唯一的用户侧 HMR API(配合 Vite `import.meta.hot`),与第 2 条联动砍掉。
 9. **defineStore 单对象内联 id 形式**(`defineStore({ id, state, … })`)已在官方 3→4 移除:4.1 只接受 `(id, options)` 与 `(id, setup, options?)(dist 1345 实现即两种归一)。mini 跟随 4.1 形态,不背历史包袱。
 
@@ -59,7 +59,7 @@
 
 | 点 | 官方 | mini |
 | --- | --- | --- |
-| 告警设施 | nostics 诊断对象(why/fix/docs + 修复建议) | console.warn 仅 why 句子(R1002/R1003/R1006/R1007/R1008 文案与官方逐字一致) |
+| 告警设施 | nostics 诊断对象 + createConsoleReporter(`[PINIA_R100x]` + fix/see 三段式) | reportDiagnostic(src/utils.ts)直出同格式同文案;差异仅在「对象化基建」而非输出 |
 | 环境分支 | dev/prod 双守卫 + tree-shaking | 一律 dev 行为 |
 | piniaSymbol | dev 带描述 / prod 空 Symbol | 统一 `Symbol('pinia')` |
 | $pinia 类型 | declare module '@vue/runtime-core' 增强 | 无声明;测试两套并存撞车 → as any(createPinia.ts:37-39 注释,运行期无差异) |

@@ -102,4 +102,34 @@ describe('setup 语法 —— action', () => {
     const store = defineStore('su6', () => ({ count: ref(0) }))()
     expect(() => store.$reset()).toThrow(/setup syntax/)
   })
+
+  it('setup 语法下 $patch/$state 赋值:改写仓库里的 ref 本体与 reactive(官方语义)', () => {
+    const useStore = defineStore('su7', () => {
+      const count = ref(1)
+      const nested = reactive({ a: 1 })
+      return { count, nested }
+    })
+    const store = useStore()
+    const raw = toRaw(pinia.state.value.su7)
+    const refBefore = raw.count
+    const nestedBefore = raw.nested
+
+    // 对象 $patch:仓库里的 ref 本体被「就地改写」而非替换 —— reactive set trap
+    // 在旧值是 ref、新值非 ref 时走 oldValue.value = newValue(官方同款,Vue 行为)
+    store.$patch({ count: 5 })
+    expect(store.count).toBe(5)
+    expect(store.$state.count).toBe(5)
+    expect(raw.count).toBe(refBefore) // 仍是同一个 ref 本体
+    expect(refBefore.value).toBe(5) // 其 value 已被改写
+
+    // 嵌套 reactive 走深合并,原位发生(raw 层身份保留,差分实验双库一致)
+    store.$patch({ nested: { b: 2 } as any })
+    expect(store.nested.a).toBe(1)
+    expect((store.nested as any).b).toBe(2)
+    expect(toRaw(pinia.state.value.su7.nested)).toBe(nestedBefore)
+
+    // $state 赋值同样走 $patch(官方同款 setter 语义)
+    store.$state = { count: 9, nested: { a: 1, b: 2 } } as any
+    expect(store.count).toBe(9)
+  })
 })

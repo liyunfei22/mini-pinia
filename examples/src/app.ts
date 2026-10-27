@@ -101,11 +101,16 @@ export const App = defineComponent({
     }
 
     // ---- ③④ $subscribe(counter + cart):记录最近 10 条 ----
+    /** 毫秒级时间戳(慢 action 的 600ms 时序差才能被肉眼观察到) */
+    const fmtTime = (): string => {
+      const d = new Date()
+      return `${d.toLocaleTimeString('zh-CN')}.${String(d.getMilliseconds()).padStart(3, '0')}`
+    }
     const subLog = ref<SubEntry[]>([])
     const latest = ref<SubEntry | null>(null) // ③ 的「最近一次事件」行
     const recSub = (m: any): void => {
       const e: SubEntry = {
-        time: new Date().toLocaleTimeString('zh-CN'),
+        time: fmtTime(),
         type: m.type, storeId: m.storeId,
         isPatch: m.type !== 'direct',
         payload: 'payload' in m ? JSON.stringify(m.payload) : null,
@@ -121,7 +126,7 @@ export const App = defineComponent({
     const actionLog = ref<ActionEntry[]>([])
     const recAction = (name: string, kind: ActionEntry['kind'], d: any): void => {
       actionLog.value.push({
-        time: new Date().toLocaleTimeString('zh-CN'), name, kind,
+        time: fmtTime(), name, kind,
         detail: d instanceof Error ? `Error: ${d.message}` : String(d),
       })
       if (actionLog.value.length > 8) actionLog.value.shift()
@@ -139,12 +144,13 @@ export const App = defineComponent({
     const slowRunning = ref(false)
     const readTip = ref('')
     const runSlowInc = async (): Promise<void> => {
+      if (slowRunning.value) return // 重入守卫:600ms 窗口内重复点击不再并发执行
       slowRunning.value = true
       try { await counter.slowInc(2) } finally { slowRunning.value = false }
     }
     const readGetterOnly = (): void => {
       void counter.double // 命中缓存:getter 函数体不执行,求值计数不变
-      readTip.value = `${new Date().toLocaleTimeString('zh-CN')} 已读取 double —— 缓存命中,未触发重算`
+      readTip.value = `${fmtTime()} 已读取 double —— 缓存命中,未触发重算`
     }
     const tryFail = (fn: () => unknown): void => {
       try { fn() } catch { /* 错误已由 onError 记入日志(异常仍被原样抛出) */ }
@@ -193,7 +199,7 @@ export const App = defineComponent({
             h('div', {}, [btn('+1(触发重算)', () => counter.inc(1)), btn('只读 getter(命中缓存)', readGetterOnly, '#6b7280')]),
             readTip.value
               ? h('p', { style: 'font-size:12px;color:#0d9488;margin:8px 0 0;' }, readTip.value)
-              : h('p', { style: 'font-size:12px;color:#9ca3af;margin:6px 0;' }, '先点「+1」让求值计数 +1,再连点「只读 getter」:计数不动 —— 证明 computed 缓存'),
+              : h('p', { style: 'font-size:12px;color:#9ca3af;margin:6px 0;' }, '提示:首帧渲染已求值 1 次;连点「只读 getter」计数不动(依赖不变 → 命中缓存);任何面板改动 count 都会让计数 +1(依赖变了才重算)—— 这就是 computed 缓存语义。'),
           ),
 
           // ③ $patch 双形态 + 最近一次订阅事件
@@ -240,7 +246,7 @@ export const App = defineComponent({
                       `[${e.time}] ${e.kind === 'error' ? 'onError →' : 'after →'} ${e.name} : `, h('b', {}, String(e.detail)),
                     ]))),
             h('p', { style: 'font-size:12px;color:#9ca3af;margin:8px 0 0;' },
-              '提示:slowInc 的 after 在其 600ms 延迟落定后才出现(注意时间戳差);点下方「checkout」时 inc 会以 counter 身份再记一条 —— 跨 store 调用同样可被 $onAction 观察。'),
+              '提示:slowInc 的 after 在其 600ms 延迟落定后才出现(看日志毫秒戳,相差约 600ms);点下方「checkout」时 inc 会以 counter 身份再记一条 —— 跨 store 调用同样可被 $onAction 观察。'),
           ),
 
           // ⑥ 跨 store action

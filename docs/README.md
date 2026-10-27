@@ -7,7 +7,7 @@
 
 mini-pinia 从零镜像 [Pinia](https://github.com/vuejs/pinia) 4.1.0(Vue 3 + TypeScript),三个关键词:
 
-- **最小**:源码只有 `src/` 下 8 个文件;官方 `dist/pinia.js` 是 `packages/pinia/src/*` 的平铺(1535 行,`//#region` 标记),mini 每块都能在官方找到对应位置(第 3 节表格);
+- **最小**:源码只有 `src/` 下 9 个文件;官方 `dist/pinia.js` 是 `packages/pinia/src/*` 的平铺(1535 行,`//#region` 标记),mini 每块都能在官方找到对应位置(第 3 节表格);
 - **行为对拍**:`npm run probe` 用 31 条探测先把官方边界行为钉死;`tests/parity.spec.ts` 让同一批 store 定义分别跑官方与 mini——状态、getter 值、$patch 结果、订阅事件序列、action 调用链**必须一致**;
 - **注释即教材**:每个源文件头注释写明「对应官方位置 + 教学点 + 简化点」,没做到的简化诚实记入 docs/06。
 

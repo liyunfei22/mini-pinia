@@ -256,11 +256,13 @@ export type StoreDefinition<
   $id: Id
 }
 
-/** setup 语法 defineStore 的返回值(官方 4.x 的 S/G/A 三默认参数,mini 保留) */
+/** setup 语法 defineStore 的返回值(官方 4.x 的 S/G/A 三默认参数,mini 保留)
+ * 注意:默认 S 直接用 Pick 提取(不加 & StateTree —— 加了会给每个键注入
+ * 索引签名,污染 UnwrapRef 后 $patch 重载的对象字面量检查) */
 export type SetupStoreDefinition<
   Id extends string = string,
   SS = any,
-  S extends StateTree = _ExtractStateFromSetupStore<SS> & StateTree,
+  S extends StateTree = _ExtractStateFromSetupStore<SS>,
   G = _ExtractGettersFromSetupStore<SS>,
   A = _ExtractActionsFromSetupStore<SS>,
 > = StoreDefinition<Id, S, G, A>

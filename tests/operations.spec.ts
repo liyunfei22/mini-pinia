@@ -395,4 +395,32 @@ describe('$dispose', () => {
       spy.mockRestore()
     }
   })
+
+  it('$patch mutator 抛错后:门控停在 false,同 tick 直接变更静默,恢复后可见(官方同款行为)', async () => {
+    const store = defineStore('ops23', { state: () => ({ count: 0 }) })()
+    const events: string[] = []
+    store.$subscribe((m: any) => events.push(m.type))
+
+    // mutator 抛错:nextTick 恢复逻辑没来得及注册 → isListening 永久 false(除非下次成功 patch)
+    // 注意:官方 $patch 类型守卫会把「返回 never 的 mutator」也判成 never,需 as any 桥接
+    expect(() =>
+      store.$patch((() => {
+        throw new Error('boom in mutator')
+      }) as any),
+    ).toThrow('boom in mutator')
+
+    store.count = 1 // 直接变更:watcher 被 isListening=false 门控,不触发
+    await nextTick()
+    expect(events).toEqual([])
+
+    store.$patch({ count: 2 }) // 成功的 $patch:注册恢复 + 同步广播单事件
+    expect(events).toEqual(['patch object'])
+    store.count = 9 // 与 $patch 同 tick 的直接变更:仍被门控(flush 先于恢复微任务)
+    await nextTick()
+    expect(events).toEqual(['patch object'])
+
+    store.count = 3 // 恢复完成(isListening=true)后的直接变更
+    await nextTick()
+    expect(events).toEqual(['patch object', 'direct'])
+  })
 })

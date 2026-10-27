@@ -13,7 +13,8 @@
  *    $patch 用 isListening/isSyncListening/activeListener 三变量门控只广播一次;
  * 5. action 经 wrapAction:this 永远落回自己的 store、args 共享、异步 then/catch 分流。
  * 简化点(见 docs/06):无 HMR(_hotUpdate/_hmrPayload/useStore._pinia)、
- * 无 skipHydrate/shouldHydrate、dev/prod 分支合一(一律 dev 行为)、告警用 console。
+ * 无 skipHydrate/shouldHydrate、dev/prod 分支合一(一律 dev 行为)、
+ * 告警以 reportDiagnostic 输出官方同格式(见 src/utils.ts)。
  */
 import {
   computed,
@@ -32,7 +33,7 @@ import {
 import type { EffectScope } from 'vue'
 import { addSubscription, triggerSubscriptions } from './subscriptions'
 import { activePinia, piniaSymbol, setActivePinia } from './rootStore'
-import { isComputed, mergeReactiveObjects, noop } from './utils'
+import { isComputed, mergeReactiveObjects, noop, reportDiagnostic } from './utils'
 import type {
   _ActionsTree,
   _GettersTree,
@@ -133,9 +134,12 @@ function createOptionsStore(id: string, options: any, pinia: Pinia): any {
       // 保证异步 action 里跨 store 读 getter 时 activePinia 正确
       Object.keys(getters || {}).reduce((computedGetters: any, name) => {
         if (name in localState) {
-          // 官方 R1002:getter 不能与 state 重名
-          console.warn(
-            `[🍍]: A getter cannot have the same name as another state property. Found "${name}" in store "${id}".`,
+          // 官方 R1002:getter 不能与 state 重名(文案/格式与官方一致)
+          reportDiagnostic(
+            'PINIA_R1002',
+            `A getter cannot have the same name as another state property. Found "${name}" in store "${id}".`,
+            'Rename either the getter or the state property.',
+            'https://pinia.vuejs.org/core-concepts/getters.html#Accessing-other-getters',
           )
         }
         computedGetters[name] = markRaw(
@@ -248,8 +252,12 @@ function createSetupStore(
     // 官方 R1008:对「旧实例」调 $dispose 会连新 store 一起摘掉,给出提醒
     const registeredStore = pinia._s.get($id)
     if (registeredStore && registeredStore !== store) {
-      console.warn(
-        `[🍍]: "$dispose()" was called on an old instance of store "${$id}" that has already been replaced by a new one. This also removes the new store.`,
+      // 官方 R1008:对「旧实例」调 $dispose 会连新 store 一起摘掉
+      reportDiagnostic(
+        'PINIA_R1008',
+        `"$dispose()" was called on an old instance of store "${$id}" that has already been replaced by a new one. This also removes the new store.`,
+        'Avoid keeping references to disposed stores. Call the useStore() function again to get the current store.',
+        'https://pinia.vuejs.org/api/pinia/interfaces/StoreWithState.html#-dispose-',
       )
     }
     pinia._s.delete($id)
@@ -318,8 +326,11 @@ function createSetupStore(
     $subscribe(callback: SubscriptionCallback<any>, options: any = {}) {
       // Set 天然去重:同一回调重复注册,告警并返回 noop(官方 R1007)
       if (subscriptions.has(callback)) {
-        console.warn(
-          `[🍍]: The same callback was passed to "$subscribe()" of store "${$id}" more than once. Subscriptions are deduplicated, so the duplicate is ignored.`,
+        reportDiagnostic(
+          'PINIA_R1007',
+          `The same callback was passed to "$subscribe()" of store "${$id}" more than once. Subscriptions are deduplicated, so the duplicate is ignored.`,
+          'Subscribe each callback only once. If you need to resubscribe, call the returned function to remove the previous subscription first, or create a new function.',
+          'https://pinia.vuejs.org/core-concepts/state.html#Subscribing-to-the-state',
         )
         return noop
       }
@@ -420,8 +431,12 @@ function createSetupStore(
           !isReactive(value) &&
           !(value as any)?.__v_skip
         ) {
-          console.warn(
-            `[🍍]: Property "${key}" of store "${$id}" is not reactive (not a ref, reactive object, or shallowRef), so storeToRefs() ignores it.`,
+          // dev 提示:非响应式对象扩展会被 storeToRefs 忽略(官方 R1006,文案一致)
+          reportDiagnostic(
+            'PINIA_R1006',
+            `Property "${key}" of store "${$id}" is not reactive (not a ref, reactive object, or shallowRef), so storeToRefs() ignores it.`,
+            'If it should be reactive state, wrap it with ref(), reactive(), or shallowRef(). If it is an intentional non-reactive property, wrap it with markRaw() so storeToRefs() skips it explicitly.',
+            'https://pinia.vuejs.org/core-concepts/plugins.html#Adding-new-external-properties',
           )
         }
       }
@@ -436,7 +451,21 @@ function createSetupStore(
     typeof store.$state.constructor === 'function' &&
     !store.$state.constructor.toString().includes('[native code]')
   ) {
-    console.warn(`[🍍]: The "state" must be a plain object. Found in store "${$id}".`)
+    reportDiagnostic(
+      'PINIA_R1003',
+      `The "state" must be a plain object. Found in store "${$id}".`,
+      'Return a plain object, e.g. avoid state: () => new MyClass().',
+      'https://pinia.vuejs.org/core-concepts/state.html#State',
+    )
+  }
+
+  // 官方 dev/devtools 场景把内部键重定义为非枚举(官方 dist 1305-1320),避免
+  // Object.keys/for...in/{...store} 看到它们;mini 无 _hmrPayload,仅处理三键
+  if (IS_CLIENT) {
+    const nonEnumerable = { writable: true, configurable: true, enumerable: false }
+    ;['_p', '_getters', '_customProperties'].forEach((p) => {
+      Object.defineProperty(store, p, assign({ value: store[p] }, nonEnumerable))
+    })
   }
 
   isListening = true

@@ -8,6 +8,7 @@
  *    注入链拿不到才兜底回模块级 activePinia —— 这一行就是 SSR 安全的全部秘密。
  */
 import { hasInjectionContext, inject } from 'vue'
+import { reportDiagnostic } from './utils'
 import type { Pinia, StoreGeneric } from './types'
 
 /** 模块级单例:当前激活的 pinia(不存在时 undefined);store.ts 内部直接读写 */
@@ -30,12 +31,14 @@ export function setActivePinia(pinia: Pinia | undefined): void {
  */
 export function getActivePinia(): Pinia | undefined {
   const pinia = hasInjectionContext() && (inject(piniaSymbol) as Pinia)
+  // 官方 dev 版在「非浏览器环境且拿不到 pinia」时报 R1004(error 级别)
   if (!pinia && typeof window === 'undefined') {
-    console.error(
-      '[🍍]: Pinia instance not found in context. This falls back to the global ' +
-        'activePinia, which exposes you to cross-request pollution on the server. ' +
-        'Call "useStore()" at the top of setup() (or another composable), or pass ' +
-        'the pinia instance explicitly when used outside of a component.',
+    reportDiagnostic(
+      'PINIA_R1004',
+      'Pinia instance not found in context. This falls back to the global activePinia, which exposes you to cross-request pollution on the server.',
+      '"useStore()" is a composable and follows the same rules: call it at the top of setup() (or another composable), or pass the pinia instance explicitly when used outside of a component.',
+      'https://pinia.vuejs.org/ssr/#Using-the-store-outside-of-setup-',
+      'error',
     )
   }
   return pinia || activePinia

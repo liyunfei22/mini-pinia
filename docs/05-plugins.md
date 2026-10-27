@@ -31,7 +31,7 @@ install(app) {
 
 ## 5.2 插件的上下文:ctx 四件套
 
-`PiniaPluginContext`(src/types.ts:102-118)的四个字段及其来源:
+`PiniaPluginContext`(src/types.ts:103-113)的四个字段及其来源:
 
 | 字段 | 来源 | 说明 |
 | --- | --- | --- |

@@ -7,7 +7,7 @@
  *  M3 补全:操作 API 对拍 —— 事件序列/时序/调用链/退订)
  */
 import { describe, it, expect } from 'vitest'
-import { computed, nextTick, ref, reactive } from 'vue'
+import { computed, nextTick, reactive, ref, toRaw } from 'vue'
 import {
   createPinia as officialCreatePinia,
   defineStore as officialDefineStore,
@@ -424,5 +424,94 @@ describe('parity —— storeToRefs(M4)', () => {
     oRefs.count.value = 9
     expect(m.count).toBe(o.count)
     dispose()
+  })
+})
+
+describe('parity —— 审查补测(最终对抗性审查新增)', () => {
+  const LIBS = {
+    official: {
+      createPinia: officialCreatePinia,
+      defineStore: officialDefineStore,
+      setActivePinia: officialSetActivePinia,
+      disposePinia: officialDisposePinia,
+    },
+    mini: { createPinia, defineStore, setActivePinia, disposePinia },
+  } as const
+
+  /** 在指定库上建立独立 pinia 跑场景,返回可比较快照 */
+  async function runOn(
+    which: 'official' | 'mini',
+    fn: (lib: any) => Promise<unknown> | unknown,
+  ): Promise<unknown> {
+    const lib: any = LIBS[which]
+    const pinia = lib.createPinia()
+    lib.setActivePinia(pinia)
+    try {
+      return await fn(lib)
+    } finally {
+      lib.disposePinia(pinia)
+    }
+  }
+
+  it('对拍 9:setup 语法 $patch —— ref 就地改写 + raw 层身份保留(双库一致)', async () => {
+    const scenario = async (lib: any): Promise<any> => {
+      const useStore = lib.defineStore('par9', () => {
+        const count = ref(1)
+        const nested = reactive({ a: 1 })
+        return { count, nested }
+      })
+      const store: any = useStore()
+      const raw: any = toRaw(store.$state)
+      const nestedBefore = raw.nested
+      store.$patch({ count: 5 })
+      store.$patch({ nested: { b: 2 } })
+      return {
+        count: store.count,
+        a: store.nested.a,
+        b: store.nested.b,
+        // reactive set trap:仓库里仍是原 ref 本体,value 已被就地改写
+        refIsRef: !!(raw.count && raw.count.__v_isRef),
+        refValue: raw.count?.value,
+        // 嵌套 reactive 深合并原位发生(raw 层身份保留即可,代理层由 Vue 包装决定)
+        rawNestedSame: toRaw(store.$state.nested) === nestedBefore,
+      }
+    }
+    const o = await runOn('official', scenario)
+    const m = await runOn('mini', scenario)
+    expect(m).toEqual(o)
+    expect((o as any).refIsRef).toBe(true)
+    expect((o as any).rawNestedSame).toBe(true)
+  })
+
+  it('对拍 10:mutator 抛错后的门控与恢复时序一致(含同 tick 直接变更)', async () => {
+    const scenario = async (lib: any): Promise<any> => {
+      const useStore = lib.defineStore('par10', { state: () => ({ count: 0 }) })
+      const store: any = useStore()
+      const events: string[] = []
+      store.$subscribe((m: any) => events.push(m.type))
+      try {
+        store.$patch((() => {
+          throw new Error('boom')
+        }) as any) // 官方类型守卫会把 never 返回也判成 never,桥接 any
+      } catch {
+        /* 两库都会原样抛出;这里吞掉继续测门控 */
+      }
+      store.count = 1
+      await nextTick()
+      const step1 = [...events]
+      store.$patch({ count: 2 })
+      store.count = 9 // 与 $patch 同 tick:仍被门控(flush 先于恢复微任务)
+      await nextTick()
+      const step2 = [...events]
+      store.count = 3 // 恢复完成(isListening=true)后的直接变更
+      await nextTick()
+      return { step1, step2, final: events }
+    }
+    const o = await runOn('official', scenario)
+    const m = await runOn('mini', scenario)
+    expect(m).toEqual(o)
+    expect((o as any).step1).toEqual([])
+    expect((o as any).step2).toEqual(['patch object'])
+    expect((o as any).final).toEqual(['patch object', 'direct'])
   })
 })
